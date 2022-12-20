@@ -53,9 +53,9 @@ public class DigitalMasking extends ScalarFunction
      * withChildren.
      */
     @Override
-    public Abs withChildren(List<Expression> children) {
+    public DigitalMasking withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new Abs(children.get(0));
+        return new DigitalMasking(children.get(0));
     }
 
     @Override
