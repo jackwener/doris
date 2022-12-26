@@ -22,6 +22,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Acos;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.AesDecrypt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.AesEncrypt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.AppendTrailingCharIfAbsent;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ApproxCountDistinct;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ascii;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Asin;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Atan;
@@ -279,6 +280,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(AesDecrypt.class, "aes_decrypt"),
             scalar(AesEncrypt.class, "aes_encrypt"),
             scalar(AppendTrailingCharIfAbsent.class, "append_trailing_char_if_absent"),
+            scalar(ApproxCountDistinct.class, "approx_count_distinct"),
             scalar(Ascii.class, "ascii"),
             scalar(Asin.class, "asin"),
             scalar(Atan.class, "atan"),

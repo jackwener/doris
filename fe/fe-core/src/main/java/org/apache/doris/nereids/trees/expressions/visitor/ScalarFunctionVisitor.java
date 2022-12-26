@@ -22,6 +22,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Acos;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.AesDecrypt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.AesEncrypt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.AppendTrailingCharIfAbsent;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ApproxCountDistinct;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ascii;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Asin;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Atan;
@@ -296,6 +297,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitAppendTrailingCharIfAbsent(AppendTrailingCharIfAbsent function, C context) {
         return visitScalarFunction(function, context);
+    }
+
+    default R visitApproxCountDistinct(ApproxCountDistinct approxCountDistinct, C context) {
+        return visitScalarFunction(approxCountDistinct, context);
     }
 
     default R visitAscii(Ascii ascii, C context) {
