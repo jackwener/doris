@@ -99,7 +99,7 @@ public class JoinOrderJob extends Job {
         // For other projects, such as project constant or project nullable, we construct a new project above root
         if (otherProject.size() != 0) {
             otherProject.addAll(memoRoot.getLogicalExpression().getPlan().getOutput());
-            LogicalProject logicalProject = new LogicalProject(new ArrayList<>(otherProject),
+            LogicalProject logicalProject = new LogicalProject<>(new ArrayList<>(otherProject),
                     memoRoot.getLogicalExpression().getPlan());
             GroupExpression groupExpression = new GroupExpression(logicalProject, Lists.newArrayList(group));
             memoRoot = context.getCascadesContext().getMemo().copyInGroupExpression(groupExpression);

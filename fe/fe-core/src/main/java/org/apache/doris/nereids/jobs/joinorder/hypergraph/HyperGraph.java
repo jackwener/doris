@@ -71,7 +71,7 @@ public class HyperGraph {
      * Store the relation between Alias Slot and Original Slot and its expression
      * e.g. a = b
      * project((c + d) as b)
-     * Note if the alias if the alias only associated with one endNode,
+     * Note if the alias only associated with one endNode,
      * e.g. a = b
      * project((c + 1) as b)
      * we need to replace the group of that node with this project group.
