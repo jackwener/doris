@@ -29,6 +29,7 @@ import org.apache.doris.nereids.trees.plans.JoinHint;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.LimitPhase;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAssertNumRows;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
@@ -38,6 +39,8 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
+import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
+import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -142,6 +145,14 @@ public class LogicalPlanBuilder {
         return limit(limit, 0);
     }
 
+    public LogicalPlanBuilder topN(long limit, long offset, List<Integer> orderKeySlotsIndex) {
+        List<OrderKey> orderKeys = orderKeySlotsIndex.stream()
+                .map(i -> new OrderKey(this.plan.getOutput().get(i), false, false))
+                .collect(Collectors.toList());
+        LogicalTopN<Plan> topNPlan = new LogicalTopN<>(orderKeys, limit, offset, this.plan);
+        return from(topNPlan);
+    }
+
     public LogicalPlanBuilder filter(Expression conjunct) {
         return filter(ImmutableSet.copyOf(ExpressionUtils.extractConjunction(conjunct)));
     }
@@ -200,5 +211,13 @@ public class LogicalPlanBuilder {
         LogicalAssertNumRows<LogicalPlan> assertNumRows = new LogicalAssertNumRows<>(
                 new AssertNumRowsElement(numRows, "", assertion), this.plan);
         return from(assertNumRows);
+    }
+
+    public LogicalPlanBuilder union(Qualifier qualifier, List<Plan> others) {
+        LogicalUnion union = new LogicalUnion(qualifier, ImmutableList.<Plan>builder()
+                .add(this.plan)
+                .addAll(others)
+                .build());
+        return from(union.withNewOutputs(union.buildNewOutputs()));
     }
 }

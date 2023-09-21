@@ -90,12 +90,13 @@ import org.apache.doris.nereids.rules.rewrite.PushProjectIntoOneRowRelation;
 import org.apache.doris.nereids.rules.rewrite.PushProjectThroughUnion;
 import org.apache.doris.nereids.rules.rewrite.PushdownFilterThroughProject;
 import org.apache.doris.nereids.rules.rewrite.PushdownLimit;
+import org.apache.doris.nereids.rules.rewrite.PushdownTopN;
 import org.apache.doris.nereids.rules.rewrite.PushdownTopNThroughWindow;
 import org.apache.doris.nereids.rules.rewrite.ReorderJoin;
-import org.apache.doris.nereids.rules.rewrite.ReplaceLimitNode;
 import org.apache.doris.nereids.rules.rewrite.RewriteCteChildren;
 import org.apache.doris.nereids.rules.rewrite.SemiJoinCommute;
 import org.apache.doris.nereids.rules.rewrite.SimplifyAggGroupBy;
+import org.apache.doris.nereids.rules.rewrite.SortLimitToTopN;
 import org.apache.doris.nereids.rules.rewrite.SplitLimit;
 import org.apache.doris.nereids.rules.rewrite.TransposeSemiJoinAgg;
 import org.apache.doris.nereids.rules.rewrite.TransposeSemiJoinAggProject;
@@ -275,9 +276,10 @@ public class Rewriter extends AbstractBatchJobExecutor {
                             //       we should refactor like AggregateStrategies, e.g. LimitStrategies,
                             //       generate one PhysicalLimit if current distribution is gather or two
                             //       PhysicalLimits with gather exchange
-                            new ReplaceLimitNode(),
+                            new SortLimitToTopN(),
                             new SplitLimit(),
                             new PushdownLimit(),
+                            new PushdownTopN(),
                             new PushdownTopNThroughWindow(),
                             new CreatePartitionTopNFromWindow()
                     )

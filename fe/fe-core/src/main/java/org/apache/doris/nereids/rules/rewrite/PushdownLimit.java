@@ -19,6 +19,7 @@ package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.trees.plans.LimitPhase;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Limit;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
@@ -45,9 +46,15 @@ public class PushdownLimit implements RewriteRuleFactory {
     public List<Rule> buildRules() {
         return ImmutableList.of(
                 // limit -> join
-                logicalLimit(logicalJoin(any(), any())).whenNot(Limit::hasValidOffset)
+                logicalLimit(logicalJoin())
+                        .whenNot(Limit::hasValidOffset)
+                        .when(limit -> limit.getPhase() == LimitPhase.ORIGIN)
                         .then(limit -> {
-                            Plan newJoin = pushLimitThroughJoin(limit, limit.child());
+                            long limitNum = limit.getLimit();
+                            long offsetNum = limit.getOffset();
+                            LogicalJoin<Plan, Plan> join = limit.child();
+
+                            Plan newJoin = pushLimitThroughJoin(limitNum, offsetNum, join);
                             if (newJoin == null || limit.child().children().equals(newJoin.children())) {
                                 return null;
                             }
@@ -56,11 +63,16 @@ public class PushdownLimit implements RewriteRuleFactory {
                         .toRule(RuleType.PUSH_LIMIT_THROUGH_JOIN),
 
                 // limit -> project -> join
-                logicalLimit(logicalProject(logicalJoin(any(), any()))).whenNot(Limit::hasValidOffset)
+                logicalLimit(logicalProject(logicalJoin()))
+                        .when(limit -> limit.getPhase() == LimitPhase.ORIGIN)
+                        .whenNot(Limit::hasValidOffset)
                         .then(limit -> {
+                            long limitNum = limit.getLimit();
+                            long offsetNum = limit.getOffset();
                             LogicalProject<LogicalJoin<Plan, Plan>> project = limit.child();
                             LogicalJoin<Plan, Plan> join = project.child();
-                            Plan newJoin = pushLimitThroughJoin(limit, join);
+
+                            Plan newJoin = pushLimitThroughJoin(limitNum, offsetNum, join);
                             if (newJoin == null || join.children().equals(newJoin.children())) {
                                 return null;
                             }
@@ -69,6 +81,8 @@ public class PushdownLimit implements RewriteRuleFactory {
 
                 // limit -> window
                 logicalLimit(logicalWindow())
+                        .whenNot(Limit::hasValidOffset)
+                        .when(limit -> limit.getPhase() == LimitPhase.ORIGIN)
                         .then(limit -> {
                             LogicalWindow<Plan> window = limit.child();
                             long partitionLimit = limit.getLimit() + limit.getOffset();
@@ -81,6 +95,8 @@ public class PushdownLimit implements RewriteRuleFactory {
 
                 // limit -> project -> window
                 logicalLimit(logicalProject(logicalWindow()))
+                        .whenNot(Limit::hasValidOffset)
+                        .when(limit -> limit.getPhase() == LimitPhase.ORIGIN)
                         .then(limit -> {
                             LogicalProject<LogicalWindow<Plan>> project = limit.child();
                             LogicalWindow<Plan> window = project.child();
@@ -95,6 +111,7 @@ public class PushdownLimit implements RewriteRuleFactory {
                 // limit -> union
                 logicalLimit(logicalUnion(multi()).when(union -> union.getQualifier() == Qualifier.ALL))
                         .whenNot(Limit::hasValidOffset)
+                        .when(limit -> limit.getPhase() == LimitPhase.ORIGIN)
                         .then(limit -> {
                             LogicalUnion union = limit.child();
                             ImmutableList<Plan> newUnionChildren = union.children()
@@ -111,23 +128,19 @@ public class PushdownLimit implements RewriteRuleFactory {
         );
     }
 
-    private Plan pushLimitThroughJoin(LogicalLimit<? extends Plan> limit, LogicalJoin<Plan, Plan> join) {
+    /** pushLimitThroughJoin **/
+    public static Plan pushLimitThroughJoin(long limit, long offset, LogicalJoin<Plan, Plan> join) {
         switch (join.getJoinType()) {
             case LEFT_OUTER_JOIN:
-                return join.withChildren(
-                        limit.withChildren(join.left()),
-                        join.right()
-                );
+                LogicalLimit<Plan> leftLimitPlan = new LogicalLimit<>(limit, offset, LimitPhase.ORIGIN, join.left());
+                return join.withChildren(leftLimitPlan, join.right());
             case RIGHT_OUTER_JOIN:
-                return join.withChildren(
-                        join.left(),
-                        limit.withChildren(join.right())
-                );
+                LogicalLimit<Plan> rightLimitPlan = new LogicalLimit<>(limit, offset, LimitPhase.ORIGIN, join.right());
+                return join.withChildren(join.left(), rightLimitPlan);
             case CROSS_JOIN:
-                return join.withChildren(
-                        limit.withChildren(join.left()),
-                        limit.withChildren(join.right())
-                );
+                leftLimitPlan = new LogicalLimit<>(limit, offset, LimitPhase.ORIGIN, join.left());
+                rightLimitPlan = new LogicalLimit<>(limit, offset, LimitPhase.ORIGIN, join.right());
+                return join.withChildren(leftLimitPlan, rightLimitPlan);
             default:
                 // don't push limit.
                 return null;
