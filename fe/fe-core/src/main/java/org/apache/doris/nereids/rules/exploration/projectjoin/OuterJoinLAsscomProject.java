@@ -15,20 +15,19 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.rules.exploration.join;
+package org.apache.doris.nereids.rules.exploration.projectjoin;
 
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.exploration.CBOUtils;
 import org.apache.doris.nereids.rules.exploration.OneExplorationRuleFactory;
+import org.apache.doris.nereids.rules.exploration.join.OuterJoinLAsscom;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
-
-import com.google.common.collect.ImmutableList;
 
 import java.util.HashSet;
 import java.util.Set;
@@ -50,15 +49,17 @@ public class OuterJoinLAsscomProject extends OneExplorationRuleFactory {
      */
     @Override
     public Rule build() {
-        return logicalJoin(logicalProject(logicalJoin()), group())
+        return logicalProject(logicalJoin(logicalProject(logicalJoin()), group())
                 .when(join -> OuterJoinLAsscom.VALID_TYPE_PAIR_SET.contains(
                         Pair.of(join.left().child().getJoinType(), join.getJoinType())))
                 .when(topJoin -> OuterJoinLAsscom.checkReorder(topJoin, topJoin.left().child()))
                 .whenNot(join -> join.hasDistributeHint() || join.left().child().hasDistributeHint())
                 .when(topJoin -> OuterJoinLAsscom.checkCondition(topJoin,
                         topJoin.left().child().right().getOutputExprIdSet()))
-                .when(join -> join.left().isAllSlots())
-                .then(topJoin -> {
+                .when(join -> join.left().isAllSlots()))
+                .then(topProject -> {
+                    LogicalJoin<LogicalProject<LogicalJoin<GroupPlan, GroupPlan>>, GroupPlan> topJoin
+                            = topProject.child();
                     /* ********** init ********** */
                     LogicalJoin<GroupPlan, GroupPlan> bottomJoin = topJoin.left().child();
                     GroupPlan a = bottomJoin.left();
@@ -81,7 +82,7 @@ public class OuterJoinLAsscomProject extends OneExplorationRuleFactory {
                     newTopJoin.getJoinReorderContext().copyFrom(topJoin.getJoinReorderContext());
                     newTopJoin.getJoinReorderContext().setHasLAsscom(true);
 
-                    return new LogicalProject<>(ImmutableList.copyOf(topJoin.getOutput()), newTopJoin);
+                    return topProject.withChildren(newTopJoin);
                 }).toRule(RuleType.LOGICAL_OUTER_JOIN_LASSCOM_PROJECT);
     }
 }

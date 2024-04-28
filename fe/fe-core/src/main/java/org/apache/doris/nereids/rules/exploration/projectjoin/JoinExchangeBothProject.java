@@ -15,13 +15,14 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.rules.exploration.join;
+package org.apache.doris.nereids.rules.exploration.projectjoin;
 
 import org.apache.doris.nereids.hint.DistributeHint;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.exploration.CBOUtils;
 import org.apache.doris.nereids.rules.exploration.OneExplorationRuleFactory;
+import org.apache.doris.nereids.rules.exploration.join.JoinExchange;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.DistributeType;
@@ -32,7 +33,6 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.util.JoinUtils;
 
-import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 
 import java.util.ArrayList;
@@ -43,8 +43,8 @@ import java.util.Set;
 /**
  * rule factory for exchange without inside-project.
  */
-public class JoinExchangeRightProject extends OneExplorationRuleFactory {
-    public static final JoinExchangeRightProject INSTANCE = new JoinExchangeRightProject();
+public class JoinExchangeBothProject extends OneExplorationRuleFactory {
+    public static final JoinExchangeBothProject INSTANCE = new JoinExchangeBothProject();
 
     /*
      *        topJoin                      newTopJoin
@@ -55,13 +55,15 @@ public class JoinExchangeRightProject extends OneExplorationRuleFactory {
      */
     @Override
     public Rule build() {
-        return innerLogicalJoin(innerLogicalJoin(), logicalProject(innerLogicalJoin()))
+        return logicalProject(innerLogicalJoin(logicalProject(innerLogicalJoin()), logicalProject(innerLogicalJoin()))
                 .when(JoinExchange::checkReorder)
-                .when(join -> join.right().isAllSlots())
+                .when(join -> join.left().isAllSlots() && join.right().isAllSlots())
                 .whenNot(join -> join.hasDistributeHint()
-                        || join.left().hasDistributeHint() || join.right().child().hasDistributeHint())
-                .then(topJoin -> {
-                    LogicalJoin<GroupPlan, GroupPlan> leftJoin = topJoin.left();
+                        || join.left().child().hasDistributeHint() || join.right().child().hasDistributeHint()))
+                .then(topProject -> {
+                    LogicalJoin<LogicalProject<LogicalJoin<GroupPlan, GroupPlan>>,
+                            LogicalProject<LogicalJoin<GroupPlan, GroupPlan>>> topJoin = topProject.child();
+                    LogicalJoin<GroupPlan, GroupPlan> leftJoin = topJoin.left().child();
                     LogicalJoin<GroupPlan, GroupPlan> rightJoin = topJoin.right().child();
                     GroupPlan a = leftJoin.left();
                     GroupPlan b = leftJoin.right();
@@ -107,8 +109,8 @@ public class JoinExchangeRightProject extends OneExplorationRuleFactory {
                             left, right, null);
                     newTopJoin.getJoinReorderContext().setHasExchange(true);
 
-                    return new LogicalProject<>(ImmutableList.copyOf(topJoin.getOutput()), newTopJoin);
-                }).toRule(RuleType.LOGICAL_JOIN_EXCHANGE_RIGHT_PROJECT);
+                    return topProject.withChildren(newTopJoin);
+                }).toRule(RuleType.LOGICAL_JOIN_EXCHANGE_BOTH_PROJECT);
     }
 
     /**
@@ -116,6 +118,7 @@ public class JoinExchangeRightProject extends OneExplorationRuleFactory {
      */
     public static boolean checkReorder(LogicalJoin<? extends Plan, ? extends Plan> topJoin) {
         if (topJoin.isLeadingJoin()
+                || ((LogicalJoin) topJoin.left().child(0)).isLeadingJoin()
                 || ((LogicalJoin) topJoin.right().child(0)).isLeadingJoin()) {
             return false;
         }

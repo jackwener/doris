@@ -15,20 +15,19 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.rules.exploration.join;
+package org.apache.doris.nereids.rules.exploration.projectjoin;
 
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.exploration.CBOUtils;
 import org.apache.doris.nereids.rules.exploration.OneExplorationRuleFactory;
+import org.apache.doris.nereids.rules.exploration.join.InnerJoinLeftAssociate;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
-
-import com.google.common.collect.ImmutableList;
 
 import java.util.HashSet;
 import java.util.List;
@@ -50,11 +49,13 @@ public class InnerJoinLeftAssociateProject extends OneExplorationRuleFactory {
 
     @Override
     public Rule build() {
-        return innerLogicalJoin(group(), logicalProject(innerLogicalJoin()))
+        return logicalProject(innerLogicalJoin(group(), logicalProject(innerLogicalJoin()))
                 .when(InnerJoinLeftAssociate::checkReorder)
                 .whenNot(join -> join.hasDistributeHint() || join.right().child().hasDistributeHint())
-                .when(join -> join.right().isAllSlots())
-                .then(topJoin -> {
+                .when(join -> join.right().isAllSlots()))
+                .then(topProject -> {
+                    LogicalJoin<GroupPlan, LogicalProject<LogicalJoin<GroupPlan, GroupPlan>>> topJoin
+                            = topProject.child();
                     LogicalJoin<GroupPlan, GroupPlan> bottomJoin = topJoin.right().child();
                     GroupPlan a = topJoin.left();
                     GroupPlan b = bottomJoin.left();
@@ -90,7 +91,7 @@ public class InnerJoinLeftAssociateProject extends OneExplorationRuleFactory {
                             newTopHashConjuncts, newTopOtherConjuncts, left, right, null);
                     newTopJoin.getJoinReorderContext().setHasLeftAssociate(true);
 
-                    return new LogicalProject<>(ImmutableList.copyOf(topJoin.getOutput()), newTopJoin);
+                    return topProject.withChildren(newTopJoin);
                 }).toRule(RuleType.LOGICAL_INNER_JOIN_LEFT_ASSOCIATIVE_PROJECT);
     }
 }

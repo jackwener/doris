@@ -29,6 +29,7 @@ import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
+import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.util.JoinUtils;
 
 import com.google.common.collect.ImmutableList;
@@ -106,7 +107,7 @@ public class JoinExchangeLeftProject extends OneExplorationRuleFactory {
                             left, right, null);
                     newTopJoin.getJoinReorderContext().setHasExchange(true);
 
-                    return CBOUtils.projectOrSelf(ImmutableList.copyOf(topJoin.getOutput()), newTopJoin);
+                    return new LogicalProject<>(ImmutableList.copyOf(topJoin.getOutput()), newTopJoin);
                 }).toRule(RuleType.LOGICAL_JOIN_EXCHANGE_LEFT_PROJECT);
     }
 }

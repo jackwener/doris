@@ -15,12 +15,13 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.rules.exploration.join;
+package org.apache.doris.nereids.rules.exploration.projectjoin;
 
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.exploration.CBOUtils;
 import org.apache.doris.nereids.rules.exploration.OneExplorationRuleFactory;
+import org.apache.doris.nereids.rules.exploration.join.InnerJoinRightAssociate;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
@@ -28,46 +29,44 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 
-import com.google.common.collect.ImmutableList;
-
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
 /**
- * Rule for inner join LeftAssociate.
+ * Rule for inner join RightAssociate.
  */
-public class InnerJoinLeftAssociateProject extends OneExplorationRuleFactory {
-    /*
-     *    topJoin                  newTopJoin
-     *    /     \                  /        \
-     *   A    bottomJoin  ->  newBottomJoin  C
-     *           /    \        /    \
-     *          B      C      A      B
-     */
-    public static final InnerJoinLeftAssociateProject INSTANCE = new InnerJoinLeftAssociateProject();
+public class InnerJoinRightAssociateProject extends OneExplorationRuleFactory {
+    //       topJoin        newTopJoin
+    //       /     \         /     \
+    //  bottomJoin  C  ->   A   newBottomJoin
+    //   /    \                     /    \
+    //  A      B                   B      C
+    public static final InnerJoinRightAssociateProject INSTANCE = new InnerJoinRightAssociateProject();
 
     @Override
     public Rule build() {
-        return innerLogicalJoin(group(), logicalProject(innerLogicalJoin()))
-                .when(InnerJoinLeftAssociate::checkReorder)
-                .whenNot(join -> join.hasDistributeHint() || join.right().child().hasDistributeHint())
-                .when(join -> join.right().isAllSlots())
-                .then(topJoin -> {
-                    LogicalJoin<GroupPlan, GroupPlan> bottomJoin = topJoin.right().child();
-                    GroupPlan a = topJoin.left();
-                    GroupPlan b = bottomJoin.left();
-                    GroupPlan c = bottomJoin.right();
-                    Set<ExprId> cExprIdSet = c.getOutputExprIdSet();
+        return logicalProject(innerLogicalJoin(logicalProject(innerLogicalJoin()), group())
+                .when(InnerJoinRightAssociate::checkReorder)
+                .whenNot(join -> join.hasDistributeHint() || join.left().child().hasDistributeHint())
+                .when(join -> join.left().isAllSlots()))
+                .then(topProject -> {
+                    LogicalJoin<LogicalProject<LogicalJoin<GroupPlan, GroupPlan>>, GroupPlan> topJoin
+                            = topProject.child();
+                    LogicalJoin<GroupPlan, GroupPlan> bottomJoin = topJoin.left().child();
+                    GroupPlan a = bottomJoin.left();
+                    GroupPlan b = bottomJoin.right();
+                    GroupPlan c = topJoin.right();
+                    Set<ExprId> aExprIdSet = a.getOutputExprIdSet();
 
                     // Split condition
                     Map<Boolean, List<Expression>> splitHashConjuncts = CBOUtils.splitConjuncts(
-                            topJoin.getHashJoinConjuncts(), bottomJoin.getHashJoinConjuncts(), cExprIdSet);
+                            topJoin.getHashJoinConjuncts(), bottomJoin.getHashJoinConjuncts(), aExprIdSet);
                     List<Expression> newTopHashConjuncts = splitHashConjuncts.get(true);
                     List<Expression> newBottomHashConjuncts = splitHashConjuncts.get(false);
                     Map<Boolean, List<Expression>> splitOtherConjuncts = CBOUtils.splitConjuncts(
-                            topJoin.getOtherJoinConjuncts(), bottomJoin.getOtherJoinConjuncts(), cExprIdSet);
+                            topJoin.getOtherJoinConjuncts(), bottomJoin.getOtherJoinConjuncts(), aExprIdSet);
                     List<Expression> newTopOtherConjuncts = splitOtherConjuncts.get(true);
                     List<Expression> newBottomOtherConjuncts = splitOtherConjuncts.get(false);
 
@@ -75,22 +74,35 @@ public class InnerJoinLeftAssociateProject extends OneExplorationRuleFactory {
                         return null;
                     }
 
-                    // new join.
                     LogicalJoin<Plan, Plan> newBottomJoin = topJoin.withConjunctsChildren(
-                            newBottomHashConjuncts, newBottomOtherConjuncts, a, b, null);
+                            newBottomHashConjuncts, newBottomOtherConjuncts, b, c, null);
 
                     // new Project.
                     Set<ExprId> topUsedExprIds = new HashSet<>(topJoin.getOutputExprIdSet());
                     newTopHashConjuncts.forEach(expr -> topUsedExprIds.addAll(expr.getInputSlotExprIds()));
                     newTopOtherConjuncts.forEach(expr -> topUsedExprIds.addAll(expr.getInputSlotExprIds()));
-                    Plan left = CBOUtils.newProject(topUsedExprIds, newBottomJoin);
-                    Plan right = CBOUtils.newProject(topUsedExprIds, c);
+                    Plan left = CBOUtils.newProject(topUsedExprIds, a);
+                    Plan right = CBOUtils.newProject(topUsedExprIds, newBottomJoin);
 
                     LogicalJoin<Plan, Plan> newTopJoin = bottomJoin.withConjunctsChildren(
                             newTopHashConjuncts, newTopOtherConjuncts, left, right, null);
-                    newTopJoin.getJoinReorderContext().setHasLeftAssociate(true);
+                    newTopJoin.getJoinReorderContext().setHasRightAssociate(true);
 
-                    return new LogicalProject<>(ImmutableList.copyOf(topJoin.getOutput()), newTopJoin);
-                }).toRule(RuleType.LOGICAL_INNER_JOIN_LEFT_ASSOCIATIVE_PROJECT);
+                    return topProject.withChildren(newTopJoin);
+                }).toRule(RuleType.LOGICAL_INNER_JOIN_RIGHT_ASSOCIATIVE_PROJECT);
+    }
+
+    /**
+     * Check JoinReorderContext
+     */
+    public static boolean checkReorder(LogicalJoin<? extends Plan, GroupPlan> topJoin) {
+        if (topJoin.isLeadingJoin()
+                || ((LogicalJoin) topJoin.left().child(0)).isLeadingJoin()) {
+            return false;
+        }
+        return !topJoin.getJoinReorderContext().hasCommute()
+                && !topJoin.getJoinReorderContext().hasRightAssociate()
+                && !topJoin.getJoinReorderContext().hasLeftAssociate()
+                && !topJoin.getJoinReorderContext().hasExchange();
     }
 }

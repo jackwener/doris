@@ -33,6 +33,7 @@ import org.apache.doris.nereids.rules.expression.ExpressionNormalization;
 import org.apache.doris.nereids.rules.expression.ExpressionOptimization;
 import org.apache.doris.nereids.rules.expression.ExpressionRewrite;
 import org.apache.doris.nereids.rules.rewrite.AddDefaultLimit;
+import org.apache.doris.nereids.rules.rewrite.AddProjectForJoin;
 import org.apache.doris.nereids.rules.rewrite.AdjustConjunctsReturnType;
 import org.apache.doris.nereids.rules.rewrite.AdjustNullable;
 import org.apache.doris.nereids.rules.rewrite.AggScalarSubQueryToWindowFunction;
@@ -402,6 +403,10 @@ public class Rewriter extends AbstractBatchJobExecutor {
                             new CheckMultiDistinct(),
                             new CheckAfterRewrite()
                     )
+            ),
+            topic("add projection for join",
+                    custom(RuleType.ADD_PROJECT_FOR_JOIN, AddProjectForJoin::new),
+                    topDown(new MergeProjects())
             ),
             topic("Push project and filter on cte consumer to cte producer",
                     topDown(

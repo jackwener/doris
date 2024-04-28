@@ -26,6 +26,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
+import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 
 import com.google.common.collect.ImmutableList;
 
@@ -86,7 +87,7 @@ public class InnerJoinRightAssociateProject extends OneExplorationRuleFactory {
                             newTopHashConjuncts, newTopOtherConjuncts, left, right, null);
                     newTopJoin.getJoinReorderContext().setHasRightAssociate(true);
 
-                    return CBOUtils.projectOrSelf(ImmutableList.copyOf(topJoin.getOutput()), newTopJoin);
+                    return new LogicalProject<>(ImmutableList.copyOf(topJoin.getOutput()), newTopJoin);
                 }).toRule(RuleType.LOGICAL_INNER_JOIN_RIGHT_ASSOCIATIVE_PROJECT);
     }
 

@@ -15,20 +15,20 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.rules.exploration.join;
+package org.apache.doris.nereids.rules.exploration.projectjoin;
 
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.exploration.OneExplorationRuleFactory;
+import org.apache.doris.nereids.rules.exploration.join.InnerJoinLAsscom;
+import org.apache.doris.nereids.rules.exploration.join.SemiJoinSemiJoinTranspose;
 import org.apache.doris.nereids.trees.expressions.ExprId;
-import org.apache.doris.nereids.trees.expressions.MarkJoinSlotReference;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 
-import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 
 import java.util.Set;
@@ -43,7 +43,7 @@ public class SemiJoinSemiJoinTransposeProject extends OneExplorationRuleFactory 
     /*
      *        topSemi                   newTopSemi
      *        /     \                   /       \
-     *    aProject   C              aProject     B
+     *    abProject   C              acProject     B
      *      |            ──►          |
      * bottomSemi                newBottomSemi
      *    /   \                     /   \
@@ -51,20 +51,26 @@ public class SemiJoinSemiJoinTransposeProject extends OneExplorationRuleFactory 
      */
     @Override
     public Rule build() {
-        return logicalJoin(logicalProject(logicalJoin()), group())
+        return logicalProject(logicalJoin(logicalProject(logicalJoin()), group())
                 .when(this::typeChecker)
                 .when(topSemi -> InnerJoinLAsscom.checkReorder(topSemi, topSemi.left().child(), false))
                 .whenNot(join -> join.hasDistributeHint() || join.left().child().hasDistributeHint())
-                .when(join -> join.left().isAllSlots())
-                .then(topSemi -> {
+                .when(join -> join.left().isAllSlots()))
+                .then(topProject -> {
+                    LogicalJoin<LogicalProject<LogicalJoin<GroupPlan, GroupPlan>>, GroupPlan> topSemi
+                            = topProject.child();
                     LogicalJoin<GroupPlan, GroupPlan> bottomSemi = topSemi.left().child();
-                    LogicalProject abProject = topSemi.left();
+                    LogicalProject<LogicalJoin<GroupPlan, GroupPlan>> abProject = topSemi.left();
                     GroupPlan a = bottomSemi.left();
                     GroupPlan b = bottomSemi.right();
                     GroupPlan c = topSemi.right();
                     Set<ExprId> aOutputExprIdSet = a.getOutputExprIdSet();
-                    Set<NamedExpression> acProjects = (Set<NamedExpression>) abProject.getProjects()
-                            .stream().filter(slot -> !(slot instanceof MarkJoinSlotReference))
+                    // if bottom semi join is mark join, we need remove the mark join slot creating by bottom semi join
+                    // from the project list before swapping the bottom semi to top semi
+                    Set<NamedExpression> acProjects = abProject.getProjects().stream()
+                            .filter(slot -> !(abProject.child().isMarkJoin()
+                                    && abProject.child().getMarkJoinSlotReference().get()
+                                            .getExprId() == slot.getExprId()))
                             .collect(Collectors.toSet());
 
                     bottomSemi.getConditionSlot()
@@ -85,7 +91,7 @@ public class SemiJoinSemiJoinTransposeProject extends OneExplorationRuleFactory 
                     LogicalJoin newTopSemi = bottomSemi.withChildrenNoContext(acProject, b, null);
                     newTopSemi.getJoinReorderContext().copyFrom(topSemi.getJoinReorderContext());
                     newTopSemi.getJoinReorderContext().setHasLAsscom(true);
-                    return new LogicalProject<>(ImmutableList.copyOf(topSemi.getOutput()), newTopSemi);
+                    return topProject.withChildren(newTopSemi);
                 }).toRule(RuleType.LOGICAL_SEMI_JOIN_SEMI_JOIN_TRANSPOSE_PROJECT);
     }
 
